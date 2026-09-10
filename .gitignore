@@ -1,0 +1,13 @@
+﻿node_modules
+dist
+dist-server
+.env
+.env.local
+*.log
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+coverage
+.DS_Store
+Thumbs.db

@@ -10,11 +10,11 @@
 
 ---
 
-## 2-Minute Evaluation Summary
+## 2-Minute Product Summary
 
-FlowQueue is a production-grade asynchronous job queue and webhook delivery engine designed to demonstrate backend distributed system fundamentals paired with an observable frontend operations dashboard.
+FlowQueue is a production-grade asynchronous job queue and webhook delivery engine paired with an observable frontend operations dashboard.
 
-### How this project answers job requirements:
+### Core Capabilities:
 1. **Asynchronous Background Processing & Queues**:
    - Priority scheduling (`high`, `normal`, `low`), delayed execution (`delay_seconds`), configurable concurrency per queue, and transactional task claiming.
    - Exponential backoff with random jitter to protect downstream systems from retry storms.

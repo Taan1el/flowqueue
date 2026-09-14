@@ -204,38 +204,52 @@ export class JobRepository {
         FROM jobs
         WHERE status = 'processing'
         GROUP BY queue_id
+      ), RankedJobs AS (
+        SELECT j.id, j.priority, j.run_at,
+          q.concurrency - COALESCE(apq.active_count, 0) AS available_slots,
+          ROW_NUMBER() OVER (
+            PARTITION BY j.queue_id ORDER BY j.priority ASC, j.run_at ASC, j.id ASC
+          ) AS queue_rank
+        FROM jobs j
+        JOIN queues q ON j.queue_id = q.id
+        LEFT JOIN ActivePerQueue apq ON q.id = apq.queue_id
+        WHERE j.status = 'queued'
+          AND j.run_at <= ?
+          AND q.is_paused = 0
+          AND COALESCE(apq.active_count, 0) < q.concurrency
       )
-      SELECT j.id
-      FROM jobs j
-      JOIN queues q ON j.queue_id = q.id
-      LEFT JOIN ActivePerQueue apq ON q.id = apq.queue_id
-      WHERE j.status = 'queued'
-        AND j.run_at <= ?
-        AND q.is_paused = 0
-        AND COALESCE(apq.active_count, 0) < q.concurrency
-      ORDER BY j.priority ASC, j.run_at ASC
+      SELECT id FROM RankedJobs
+      WHERE queue_rank <= available_slots
+      ORDER BY priority ASC, run_at ASC, id ASC
       LIMIT ?;
     `;
 
-    const candidates = this.db.prepare(candidateQuery).all(nowIso, limit) as { id: string }[];
-    if (candidates.length === 0) return [];
+    // Reserve the writer lock before reading capacity so other workers cannot
+    // select from the same free slots between selection and reservation.
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const candidates = this.db.prepare(candidateQuery).all(nowIso, limit) as { id: string }[];
+      const claimedJobs: Job[] = [];
+      const updateStmt = this.db.prepare(`
+        UPDATE jobs
+        SET status = 'processing', updated_at = ?
+        WHERE id = ? AND status = 'queued';
+      `);
 
-    const claimedJobs: Job[] = [];
-    const updateStmt = this.db.prepare(`
-      UPDATE jobs
-      SET status = 'processing', updated_at = ?
-      WHERE id = ? AND status = 'queued';
-    `);
-
-    for (const cand of candidates) {
-      const info = updateStmt.run(nowIso, cand.id) as any;
-      if (info.changes > 0) {
-        const fullJob = this.getJobById(cand.id);
-        if (fullJob) claimedJobs.push(fullJob);
+      for (const cand of candidates) {
+        const info = updateStmt.run(nowIso, cand.id);
+        if (info.changes > 0) {
+          const fullJob = this.getJobById(cand.id);
+          if (fullJob) claimedJobs.push(fullJob);
+        }
       }
-    }
 
-    return claimedJobs;
+      this.db.exec('COMMIT');
+      return claimedJobs;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   completeJob(id: string, result: Record<string, unknown>): void {

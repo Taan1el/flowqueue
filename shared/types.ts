@@ -74,7 +74,7 @@ export interface WebhookDelivery {
 export interface EnqueueJobDto {
   queue_name: string;
   name: string;
-  payload: Record<string, unknown>;
+  payload?: Record<string, unknown>;
   priority?: JobPriority;
   delay_seconds?: number;
   idempotency_key?: string;

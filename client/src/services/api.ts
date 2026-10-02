@@ -9,7 +9,7 @@ import {
   UpdateQueueDto,
   WebhookDelivery,
   WebhookSubscription,
-} from '../../../shared/types';
+} from '../../../shared/types.js';
 
 export interface QueueWithStats extends Queue {
   active_jobs: number;
@@ -126,3 +126,5 @@ export const api = {
     return json.data;
   },
 };
+
+export type FlowQueueApi = typeof api;

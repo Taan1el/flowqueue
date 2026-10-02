@@ -1,4 +1,4 @@
-export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'dlq';
+export type JobStatus = 'queued' | 'processing' | 'completed' | 'dlq';
 
 export type JobPriority = 'high' | 'normal' | 'low';
 

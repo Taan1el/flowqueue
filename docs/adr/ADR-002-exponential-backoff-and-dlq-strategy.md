@@ -1,23 +1,20 @@
-# ADR-002: Exponential Backoff with Jitter and Dead-Letter Queue (DLQ) Containment
+# ADR-002: Exponential Backoff with Jitter and Dead-Letter Containment
 
 ## Status
 Accepted
 
 ## Context
-External downstream systems (payment gateways, third-party logistics APIs, email providers) frequently suffer transient network timeouts, rate limiting (HTTP 429), or temporary outages. Immediate retries or fixed-interval retries create "thundering herd" spikes that further degrade downstream services. Additionally, persistently malformed payloads (poison pills) can crash worker processes repeatedly if not isolated.
+Downstream systems (payment gateways, logistics APIs, email providers) fail in transient ways: timeouts, HTTP 429, short outages. Immediate or fixed-interval retries from many jobs at once add load to a service that is already struggling. Jobs with a permanent problem (a malformed payload, a removed resource) should not be retried forever either.
 
 ## Decision
-1. **Exponential Backoff with Full Jitter**:
-   Each failed attempt schedules the next retry according to:
-   $$\text{delaySeconds} = \text{baseSec} \times 2^{\text{attempt} - 1} + \text{jitter}(0..2\text{s})$$
-   where `baseSec` is configured per queue (e.g. 2s for notifications, 5s for data sync). The random jitter prevents concurrent retrying workers from hitting external endpoints simultaneously.
-2. **Dead-Letter Queue (DLQ) Containment**:
-   When `attempt >= max_retries`, the job transitions to status `dlq` instead of being retried.
-   A `job.dlq` webhook notification is dispatched to notify engineers.
-3. **Replay Capabilities**:
-   Jobs in the DLQ remain inspectable with all failed attempts and errors preserved. Operators can trigger a replay via `POST /api/jobs/:id/retry` or the dashboard UI once the underlying issue is resolved.
+1. **Exponential backoff with a small jitter**:
+   after the n-th failed run the next run is scheduled `backoff_base_sec * 2^(n - 1)` seconds ahead, plus a random 0 or 1 second. `backoff_base_sec` is set per queue (for example 2 s for notifications, 5 s for data sync). The jitter is small on purpose; it spreads retries only slightly.
+2. **Dead letters**:
+   `max_retries` is the total number of runs a job may use, not the number of extra tries. When run number `max_retries` fails, the job moves to status `dlq` and a `job.dlq` event is sent to subscribed webhooks.
+3. **Replay**:
+   a dead-lettered job keeps its payload, error and attempt history. `POST /api/jobs/:id/retry` (or the dashboard) queues it again with exactly one more run allowed; if that run fails too, the job returns to the dead letters.
 
 ## Consequences
-- Protects downstream services from retry storms.
-- Guarantees zero lost tasks while maintaining clean queue throughput.
-- Clear separation between transient glitches and permanent bugs.
+- Retry load on a failing dependency falls off exponentially, with only a little desynchronization between jobs.
+- A job is never dropped silently after a handler failure: it either completes or stays inspectable in the dead letters. A job whose worker dies is recovered through leases (ADR-001), not through this mechanism.
+- Transient failures and permanent ones are separated by the attempt budget only; the queue does not classify errors.

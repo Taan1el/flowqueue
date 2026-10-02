@@ -81,13 +81,14 @@ export const JobsTable: React.FC<JobsTableProps> = ({
     </div>
 
     <div className="toolbar">
-      <div className="segmented" aria-label="Filter jobs by status">
+      <fieldset className="segmented">
+        <legend className="sr-only">Filter jobs by status</legend>
         {STATUS_FILTERS.map((s) => (
           <button key={s || 'all'} type="button" aria-pressed={statusFilter === s} onClick={() => onSelectStatusFilter(s)}>
             {s ? STATUS_LABELS[s] : 'All'}
           </button>
         ))}
-      </div>
+      </fieldset>
     </div>
 
     <div className="table-wrapper">

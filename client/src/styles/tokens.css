@@ -1,20 +1,20 @@
 :root {
-  --paper: #faf9f6;        /* page background */
+  --paper: #f1f5f4;        /* page background */
   --surface: #ffffff;      /* panels, tables */
-  --ink: #17160f;          /* primary text */
-  --ink-2: #57544b;        /* secondary text */
-  --ink-3: #8a867b;        /* tertiary text, placeholders */
-  --rule: #e3e0d7;         /* borders and dividers */
-  --rule-strong: #cfcabd;  /* input borders, table header rule */
+  --ink: #0b1f1d;          /* primary text */
+  --ink-2: #3a4f4c;        /* secondary text */
+  --ink-3: #566b68;        /* tertiary text, placeholders */
+  --rule: #d2dcda;         /* hairlines */
+  --rule-strong: #7f9693;  /* input borders, control edges */
   --accent: #0f766e;       /* flowqueue: flowing work */
   --accent-ink: #ffffff;   /* text on accent fills */
-  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--surface));
   /* status colors are data, not decoration: use only for status text, dots, small badges and meter fills */
   --ok: #1f7a4d;
-  --warn: #a15c00;
+  --warn: #8a5300;
   --bad: #b3261e;
-  --radius: 6px;
-  --font-heading: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+  --radius: 0;
+  --font-heading: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --font-body: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 }

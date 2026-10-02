@@ -120,7 +120,9 @@ describe('FlowQueue dashboard', () => {
     await screen.findByText('send_welcome_email');
   }
 
-  it('shows the product name and the stats strip', async () => {
+  const openTab = (name: string | RegExp) => fireEvent.click(screen.getByRole('tab', { name }));
+
+  it('shows the product name and the telemetry line', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { level: 1, name: 'FlowQueue' })).toBeInTheDocument();
     expect(screen.getByText('18')).toBeInTheDocument();
@@ -129,21 +131,20 @@ describe('FlowQueue dashboard', () => {
     expect(screen.getByText('1 failed attempt today')).toBeInTheDocument();
   });
 
-  it('lists queues with in-flight counts against capacity and the paused state', async () => {
+  it('lists queues as tabs with in-flight counts against capacity and the paused state', async () => {
     await renderLoaded();
-    const table = screen.getAllByRole('table')[0];
-    const rows = within(table).getAllByRole('row');
-    expect(within(rows[1]).getByText('notifications')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('1 / 5')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Active')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('data-sync')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Paused')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('0 / 3')).toBeInTheDocument();
+    const notifications = screen.getByRole('button', { name: 'Show jobs of notifications' });
+    expect(within(notifications).getByText('notifications')).toBeInTheDocument();
+    expect(within(notifications).getByText('1 / 5')).toBeInTheDocument();
+    expect(within(notifications).getByText('Active')).toBeInTheDocument();
+    const dataSync = screen.getByRole('button', { name: 'Show jobs of data-sync' });
+    expect(within(dataSync).getByText('Paused')).toBeInTheDocument();
+    expect(within(dataSync).getByText('0 / 3')).toBeInTheDocument();
   });
 
   it('lists jobs with a status label and attempt counts', async () => {
     await renderLoaded();
-    const jobsTable = screen.getAllByRole('table')[1];
+    const jobsTable = screen.getAllByRole('table')[0];
     expect(within(jobsTable).getByText('sync_erp_records')).toBeInTheDocument();
     expect(within(jobsTable).getByText('Completed')).toBeInTheDocument();
     expect(within(jobsTable).getByText('Dead letter')).toBeInTheDocument();
@@ -217,6 +218,7 @@ describe('FlowQueue dashboard', () => {
     it('fills the form from a preset and enqueues the job', async () => {
       vi.mocked(api.enqueueJob).mockResolvedValue({ job: job({ id: 'job-new-1', status: 'queued' }), duplicate: false });
       await renderLoaded();
+      openTab('Enqueue');
 
       fireEvent.change(screen.getByLabelText('Start from'), { target: { value: '1' } });
       expect(screen.getByLabelText('Job name')).toHaveValue('reconcile_stripe_charge');
@@ -243,6 +245,7 @@ describe('FlowQueue dashboard', () => {
     it('targets the first queue by default and omits empty optional fields', async () => {
       vi.mocked(api.enqueueJob).mockResolvedValue({ job: job({ id: 'job-new-2' }), duplicate: false });
       await renderLoaded();
+      openTab('Enqueue');
       expect(screen.getByLabelText('Queue', { selector: '#queue-select' })).toHaveValue('notifications');
       fireEvent.submit(document.getElementById('enqueue-form')!);
       await waitFor(() => expect(api.enqueueJob).toHaveBeenCalled());
@@ -254,6 +257,7 @@ describe('FlowQueue dashboard', () => {
 
     it('rejects a payload that is not valid JSON without calling the API', async () => {
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.change(screen.getByLabelText('Payload (JSON)'), { target: { value: '{nope' } });
       fireEvent.submit(document.getElementById('enqueue-form')!);
       expect(await screen.findByText('Payload must be valid JSON.')).toBeInTheDocument();
@@ -263,6 +267,7 @@ describe('FlowQueue dashboard', () => {
     it('explains an idempotent duplicate', async () => {
       vi.mocked(api.enqueueJob).mockResolvedValue({ job: job({ id: 'job-existing' }), duplicate: true });
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.submit(document.getElementById('enqueue-form')!);
       expect(await screen.findByText(/already exists: job-existing/)).toBeInTheDocument();
     });
@@ -270,12 +275,14 @@ describe('FlowQueue dashboard', () => {
     it('shows the server error when enqueueing fails', async () => {
       vi.mocked(api.enqueueJob).mockRejectedValue(new Error("Queue 'x' does not exist."));
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.submit(document.getElementById('enqueue-form')!);
       expect(await screen.findByText("Could not enqueue: Queue 'x' does not exist.")).toBeInTheDocument();
     });
 
     it('generates an idempotency key', async () => {
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
       expect((screen.getByLabelText('Idempotency key (optional)') as HTMLInputElement).value).toMatch(/^idem_/);
     });
@@ -283,8 +290,10 @@ describe('FlowQueue dashboard', () => {
     it('is reached from the header button', async () => {
       await renderLoaded();
       const scroll = vi.fn();
-      document.getElementById('enqueue-form')!.scrollIntoView = scroll;
+      Element.prototype.scrollIntoView = scroll;
+      expect(document.getElementById('enqueue-form')).toBeNull();
       fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Enqueue job' }));
+      expect(screen.getByRole('tab', { name: 'Enqueue' })).toHaveAttribute('aria-selected', 'true');
       expect(scroll).toHaveBeenCalled();
       expect(screen.getByLabelText('Queue', { selector: '#queue-select' })).toHaveFocus();
     });
@@ -293,6 +302,7 @@ describe('FlowQueue dashboard', () => {
   describe('job inspector', () => {
     it('opens from a job row, closes on Escape and returns focus', async () => {
       await renderLoaded();
+      openTab('Enqueue');
       const opener = screen.getByRole('button', { name: 'Inspect job sync_erp_records' });
       opener.focus();
       fireEvent.click(opener);
@@ -310,6 +320,7 @@ describe('FlowQueue dashboard', () => {
 
     it('closes from the close button and by clicking outside the panel', async () => {
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Inspect job send_welcome_email' }));
       await screen.findByRole('dialog');
       fireEvent.click(screen.getByRole('button', { name: 'Close job inspector' }));
@@ -323,6 +334,7 @@ describe('FlowQueue dashboard', () => {
 
     it('keeps Tab inside the panel', async () => {
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Inspect job sync_erp_records' }));
       await screen.findByText('Last error');
       const replay = screen.getByRole('button', { name: 'Replay job' });
@@ -342,6 +354,7 @@ describe('FlowQueue dashboard', () => {
       });
       vi.mocked(api.retryJob).mockResolvedValue({ ...failing, status: 'queued' });
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Inspect job sync_erp_records' }));
       const dialog = await screen.findByRole('dialog');
       expect(await within(dialog).findByText('5.0 s')).toBeInTheDocument();
@@ -355,6 +368,7 @@ describe('FlowQueue dashboard', () => {
     it('shows a replay error inside the panel', async () => {
       vi.mocked(api.retryJob).mockRejectedValue(new Error('Only dead-lettered jobs can be replayed'));
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Inspect job sync_erp_records' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Replay job' }));
       expect(await screen.findByText('Replay failed: Only dead-lettered jobs can be replayed')).toBeInTheDocument();
@@ -363,6 +377,7 @@ describe('FlowQueue dashboard', () => {
     it('shows a load error', async () => {
       vi.mocked(api.getJob).mockRejectedValue(new Error('Job not found'));
       await renderLoaded();
+      openTab('Enqueue');
       fireEvent.click(screen.getByRole('button', { name: 'Inspect job send_welcome_email' }));
       expect(await screen.findByText('Job not found')).toBeInTheDocument();
     });
@@ -371,6 +386,7 @@ describe('FlowQueue dashboard', () => {
   describe('webhooks', () => {
     it('lists deliveries with their signature and the subscriptions without secrets', async () => {
       await renderLoaded();
+      openTab(/Webhooks/);
       expect(screen.getByText('sha256=abcdef987654321')).toBeInTheDocument();
       expect(screen.getByText('45 ms')).toBeInTheDocument();
       expect(screen.getByText('Response: {"status":"ok"}')).toBeInTheDocument();
@@ -381,6 +397,7 @@ describe('FlowQueue dashboard', () => {
     it('sends a test delivery and reports the answer', async () => {
       vi.mocked(api.triggerTestWebhook).mockResolvedValue({ ...delivery, status_code: 502, duration_ms: 1500 });
       await renderLoaded();
+      openTab(/Webhooks/);
       fireEvent.click(screen.getByRole('button', { name: 'Send test delivery to Demo Sink' }));
       expect(await screen.findByText('Demo Sink answered 502 in 1.5 s.')).toBeInTheDocument();
       expect(api.triggerTestWebhook).toHaveBeenCalledWith('sub-1', 'job.completed');
@@ -389,6 +406,7 @@ describe('FlowQueue dashboard', () => {
     it('reports a failed test delivery', async () => {
       vi.mocked(api.triggerTestWebhook).mockRejectedValue(new Error('Subscription not found'));
       await renderLoaded();
+      openTab(/Webhooks/);
       fireEvent.click(screen.getByRole('button', { name: 'Send test delivery to Demo Sink' }));
       expect(await screen.findByText('Test delivery failed: Subscription not found')).toBeInTheDocument();
     });
@@ -397,9 +415,11 @@ describe('FlowQueue dashboard', () => {
       vi.mocked(api.getWebhookDeliveries).mockResolvedValue([]);
       vi.mocked(api.listJobs).mockResolvedValue({ jobs: [], total: 0 });
       render(<App />);
-      expect(await screen.findByText('No webhook deliveries recorded yet.')).toBeInTheDocument();
-      expect(screen.getByText('No jobs match these filters.')).toBeInTheDocument();
+      expect(await screen.findByText('No jobs match these filters.')).toBeInTheDocument();
       expect(screen.getByText(/No dead letters/)).toBeInTheDocument();
+      expect(screen.getByText('No events yet.')).toBeInTheDocument();
+      openTab(/Webhooks/);
+      expect(screen.getByText('No webhook deliveries recorded yet.')).toBeInTheDocument();
     });
   });
 
@@ -425,6 +445,7 @@ describe('FlowQueue dashboard', () => {
 
     it('refreshes on demand', async () => {
       await renderLoaded();
+      openTab(/Webhooks/);
       const before = vi.mocked(api.getMetrics).mock.calls.length;
       fireEvent.click(screen.getByRole('button', { name: /^Refresh$/ }));
       await waitFor(() => expect(vi.mocked(api.getMetrics).mock.calls.length).toBe(before + 1));

@@ -47,7 +47,9 @@ describe('demo app', () => {
 
     expect(await screen.findByText('generate_monthly_analytics_pdf')).toBeInTheDocument();
     expect(screen.getByText('Demo: everything runs in your browser with sample data.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /Webhooks/ }));
     expect(screen.getByText('2 subscriptions')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Enqueue' }));
 
     // enqueue through the form, then let the demo worker run it
     fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'send_invite_email' } });

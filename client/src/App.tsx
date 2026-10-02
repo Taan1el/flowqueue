@@ -6,7 +6,8 @@ import type { Job, JobPriority, JobStatus, QueueMetrics, WebhookDelivery, Webhoo
 import { Header } from './components/Header.js';
 import { DemoBanner } from './components/DemoBanner.js';
 import { StatsBar } from './components/StatsBar.js';
-import { QueuesTable } from './components/QueuesTable.js';
+import { QueueTabs } from './components/QueueTabs.js';
+import { EventLog } from './components/EventLog.js';
 import { JobsTable } from './components/JobsTable.js';
 import { EnqueueForm } from './components/EnqueueForm.js';
 import { DeadLetters } from './components/DeadLetters.js';
@@ -14,6 +15,8 @@ import { WebhookPanel } from './components/WebhookPanel.js';
 import { JobInspector } from './components/JobInspector.js';
 import { formatCount } from './utils/pluralize.js';
 import './App.css';
+
+type PanelId = 'dead' | 'webhooks' | 'enqueue';
 
 export const App: React.FC = () => {
   const [metrics, setMetrics] = useState<QueueMetrics | null>(null);
@@ -33,6 +36,8 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [panel, setPanel] = useState<PanelId>('dead');
+  const [enqueueRequests, setEnqueueRequests] = useState(0);
   const queueSelectRef = useRef<HTMLSelectElement>(null);
 
   const loadData = useCallback(async () => {
@@ -97,9 +102,22 @@ export const App: React.FC = () => {
   };
 
   const focusEnqueueForm = () => {
-    document.getElementById('enqueue-form')?.scrollIntoView({ block: 'start' });
-    queueSelectRef.current?.focus();
+    setPanel('enqueue');
+    setEnqueueRequests((n) => n + 1);
   };
+
+  // The form only exists while its tab is open, so focus it after the tab renders.
+  useEffect(() => {
+    if (enqueueRequests === 0) return;
+    document.getElementById('enqueue-form')?.scrollIntoView({ block: 'nearest' });
+    queueSelectRef.current?.focus();
+  }, [enqueueRequests]);
+
+  const panels: { id: PanelId; label: string }[] = [
+    { id: 'dead', label: `Dead letters (${deadLetters.length})` },
+    { id: 'webhooks', label: `Webhooks (${webhookSubs.length})` },
+    { id: 'enqueue', label: 'Enqueue' },
+  ];
 
   return (
     <div className="app-container">
@@ -111,11 +129,13 @@ export const App: React.FC = () => {
         autoRefresh={autoRefresh}
         onToggleAutoRefresh={() => setAutoRefresh((prev) => !prev)}
         onEnqueue={focusEnqueueForm}
-      />
+      >
+        <StatsBar metrics={metrics} />
+      </Header>
 
-      <main className="app-main">
+      <main className="console">
         {error && (
-          <div className="alert">
+          <div className="alert console-alert">
             <span className="alert-message">
               <TriangleAlert size={16} strokeWidth={1.75} aria-hidden="true" />
               <output>{error}</output>
@@ -126,18 +146,12 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        <StatsBar metrics={metrics} />
-
-        <section aria-labelledby="queues-heading">
-          <div className="section-head">
-            <h2 className="section-heading" id="queues-heading">
-              Queues
-            </h2>
-            <p className="section-description">
-              Each queue runs at most its capacity in jobs at once; pausing stops new jobs from starting.
-            </p>
-          </div>
-          <QueuesTable
+        <section className="rail" aria-labelledby="queues-heading">
+          <h2 className="rule-title" id="queues-heading">
+            Queues
+          </h2>
+          <p className="section-note">Each queue runs at most its capacity at once. Pausing stops new starts.</p>
+          <QueueTabs
             queues={queues}
             selectedQueueId={selectedQueueId}
             onSelectQueue={(id) => setSelectedQueueId((prev) => (prev === id ? null : id))}
@@ -145,14 +159,12 @@ export const App: React.FC = () => {
           />
         </section>
 
-        <section aria-labelledby="jobs-heading">
-          <div className="section-head">
-            <h2 className="section-heading" id="jobs-heading">
+        <div className="work">
+          <section aria-labelledby="jobs-heading">
+            <h2 className="rule-title" id="jobs-heading">
               Jobs
             </h2>
-            <p className="section-description">{`${formatCount(jobsTotal, 'job')} match the filters, newest first.`}</p>
-          </div>
-          <div className="split">
+            <p className="section-note">{`${formatCount(jobsTotal, 'job')} match the filters, newest first.`}</p>
             <JobsTable
               jobs={jobs}
               queues={queues}
@@ -167,31 +179,51 @@ export const App: React.FC = () => {
               onInspectJob={setInspectedJobId}
               onReplayJob={handleReplayJob}
             />
-            <EnqueueForm queues={queues} onJobEnqueued={loadData} ref={queueSelectRef} />
-          </div>
-        </section>
+          </section>
 
-        <section aria-labelledby="dlq-heading">
-          <div className="section-head">
-            <h2 className="section-heading" id="dlq-heading">
-              Dead letters
-            </h2>
-            <p className="section-description">Jobs that used all of their attempts. Replaying one grants a single extra run.</p>
-          </div>
-          <DeadLetters jobs={deadLetters} onInspectJob={setInspectedJobId} onReplayJob={handleReplayJob} />
-        </section>
+          <section className="under-tabs" aria-label="Dead letters, webhooks and enqueue">
+            <div className="tabbar" role="tablist" aria-label="Job tools">
+              {panels.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="tab"
+                  id={`tab-${p.id}`}
+                  aria-selected={panel === p.id}
+                  aria-controls={`panel-${p.id}`}
+                  className="tab"
+                  onClick={() => setPanel(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div role="tabpanel" id={`panel-${panel}`} aria-labelledby={`tab-${panel}`} className="tabpanel">
+              {panel === 'dead' && (
+                <>
+                  <p className="section-note">Jobs that used all of their attempts. Replaying one grants a single extra run.</p>
+                  <DeadLetters jobs={deadLetters} onInspectJob={setInspectedJobId} onReplayJob={handleReplayJob} />
+                </>
+              )}
+              {panel === 'webhooks' && (
+                <>
+                  <p className="section-note">
+                    Job events are posted once to each subscribed endpoint with an HMAC-SHA256 signature header.
+                  </p>
+                  <WebhookPanel subscriptions={webhookSubs} deliveries={webhookDeliveries} onRefresh={loadData} />
+                </>
+              )}
+              {panel === 'enqueue' && <EnqueueForm queues={queues} onJobEnqueued={loadData} ref={queueSelectRef} />}
+            </div>
+          </section>
+        </div>
 
-        <section aria-labelledby="webhooks-heading">
-          <div className="section-head">
-            <h2 className="section-heading" id="webhooks-heading">
-              Webhook deliveries
-            </h2>
-            <p className="section-description">
-              Job events are posted once to each subscribed endpoint with an HMAC-SHA256 signature header.
-            </p>
-          </div>
-          <WebhookPanel subscriptions={webhookSubs} deliveries={webhookDeliveries} onRefresh={loadData} />
-        </section>
+        <aside className="log" aria-labelledby="log-heading">
+          <h2 className="rule-title" id="log-heading">
+            Event log
+          </h2>
+          <EventLog jobs={jobs} deliveries={webhookDeliveries} />
+        </aside>
       </main>
 
       <footer className="app-footer">

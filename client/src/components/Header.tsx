@@ -7,12 +7,20 @@ interface HeaderProps {
   onToggleAutoRefresh: () => void;
   onRefresh: () => void;
   onEnqueue: () => void;
+  children?: React.ReactNode;
 }
 
-export const Header: React.FC<HeaderProps> = ({ loading, autoRefresh, onToggleAutoRefresh, onRefresh, onEnqueue }) => (
+export const Header: React.FC<HeaderProps> = ({
+  loading,
+  autoRefresh,
+  onToggleAutoRefresh,
+  onRefresh,
+  onEnqueue,
+  children,
+}) => (
   <header className="app-header">
     <div className="header-inner">
-      <div>
+      <div className="brand">
         <h1 className="brand-name">FlowQueue</h1>
         <p className="brand-subtitle">
           Background job queue with capacity-aware workers, retries, dead letters and signed webhooks.
@@ -34,5 +42,6 @@ export const Header: React.FC<HeaderProps> = ({ loading, autoRefresh, onToggleAu
         </button>
       </div>
     </div>
+    {children}
   </header>
 );

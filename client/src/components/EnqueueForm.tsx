@@ -100,8 +100,8 @@ export const EnqueueForm = forwardRef<HTMLSelectElement, EnqueueFormProps>(({ qu
   };
 
   return (
-    <form className="side-panel stack-form" onSubmit={handleSubmit} id="enqueue-form" aria-labelledby="enqueue-heading">
-      <h3 className="panel-heading" id="enqueue-heading" style={{ marginBottom: 0 }}>
+    <form className="stack-form" onSubmit={handleSubmit} id="enqueue-form" aria-labelledby="enqueue-heading">
+      <h3 className="panel-heading" id="enqueue-heading">
         Enqueue a job
       </h3>
 

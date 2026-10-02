@@ -1,214 +1,314 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import { createApp, AppContext } from '../src/app.js';
+import { AppContext } from '../src/app.js';
+import { WorkerService } from '../src/services/worker.service.js';
+import { createTestApp, SentWebhook } from './helpers.js';
 
-describe('FlowQueue API & Engine Integration Tests', () => {
+describe('API and worker integration', () => {
   let ctx: AppContext;
+  let sent: SentWebhook[];
 
   beforeEach(() => {
-    // In-memory database isolated per test suite
-    ctx = createApp(':memory:', true);
+    ({ ctx, sent } = createTestApp());
   });
 
-  describe('System & Health', () => {
-    it('GET /api/health returns healthy status', async () => {
+  describe('system', () => {
+    it('GET /api/health reports a healthy service', async () => {
       const res = await request(ctx.app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('healthy');
       expect(res.body.service).toBe('flowqueue-api');
     });
 
-    it('GET /api/metrics returns aggregated system metrics', async () => {
+    it('GET /api/metrics aggregates the seeded data', async () => {
       const res = await request(ctx.app).get('/api/metrics');
       expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('total_enqueued');
-      expect(res.body.data).toHaveProperty('dlq_count');
-      expect(res.body.data).toHaveProperty('throughput_per_minute');
+      expect(res.body.data).toMatchObject({ total_enqueued: 1, active_processing: 0, dlq_count: 1 });
+      expect(res.body.data.completed_today).toBeGreaterThanOrEqual(0);
+    });
+
+    it('answers unknown API paths with a JSON 404', async () => {
+      const res = await request(ctx.app).get('/api/nope');
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ success: false, error: 'Not found' });
+    });
+
+    it('rejects malformed JSON bodies with 400', async () => {
+      const res = await request(ctx.app).post('/api/jobs').set('Content-Type', 'application/json').send('{"queue_name":');
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 
-  describe('Queue Management', () => {
-    it('GET /api/queues returns all seeded queues with stats', async () => {
+  describe('queues', () => {
+    it('lists the seeded queues with counts', async () => {
       const res = await request(ctx.app).get('/api/queues');
       expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.length).toBeGreaterThanOrEqual(4);
-
-      const notificationsQueue = res.body.data.find((q: any) => q.name === 'notifications');
-      expect(notificationsQueue).toBeDefined();
-      expect(notificationsQueue.concurrency).toBe(5);
+      expect(res.body.data).toHaveLength(4);
+      const sync = res.body.data.find((q: any) => q.name === 'data-sync');
+      expect(sync).toMatchObject({ concurrency: 3, dlq_jobs: 1, active_jobs: 0, queued_jobs: 0 });
     });
 
-    it('PATCH /api/queues/:id pauses and resumes a queue', async () => {
-      const queuesRes = await request(ctx.app).get('/api/queues');
-      const queue = queuesRes.body.data[0];
+    it('pauses a queue and changes its concurrency', async () => {
+      const [queue] = (await request(ctx.app).get('/api/queues')).body.data;
+      const res = await request(ctx.app).patch(`/api/queues/${queue.id}`).send({ is_paused: true, concurrency: 8 });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ is_paused: true, concurrency: 8 });
+    });
 
-      const patchRes = await request(ctx.app)
-        .patch(`/api/queues/${queue.id}`)
-        .send({ is_paused: true, concurrency: 8 });
+    it('returns 404 for an unknown queue', async () => {
+      const res = await request(ctx.app).patch('/api/queues/missing').send({ is_paused: true });
+      expect(res.status).toBe(404);
+    });
 
-      expect(patchRes.status).toBe(200);
-      expect(patchRes.body.data.is_paused).toBe(true);
-      expect(patchRes.body.data.concurrency).toBe(8);
+    it.each([
+      [{}, 'Provide'],
+      [{ concurrency: 0 }, 'concurrency'],
+      [{ concurrency: 2.5 }, 'concurrency'],
+      [{ concurrency: 1000 }, 'concurrency'],
+      [{ is_paused: 'yes' }, 'is_paused'],
+      [{ max_retries: 0 }, 'max_retries'],
+    ])('rejects the invalid queue update %j', async (body, fragment) => {
+      const [queue] = (await request(ctx.app).get('/api/queues')).body.data;
+      const res = await request(ctx.app).patch(`/api/queues/${queue.id}`).send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain(fragment);
+    });
+
+    it('does not start jobs of a paused queue', async () => {
+      const queues = (await request(ctx.app).get('/api/queues')).body.data;
+      const notifications = queues.find((q: any) => q.name === 'notifications');
+      await request(ctx.app).patch(`/api/queues/${notifications.id}`).send({ is_paused: true });
+      const job = (await request(ctx.app).post('/api/jobs').send({ queue_name: 'notifications', name: 'send_email' })).body.data;
+
+      await ctx.workerService.pollOnce();
+      expect((await request(ctx.app).get(`/api/jobs/${job.id}`)).body.data.status).toBe('queued');
+
+      await request(ctx.app).patch(`/api/queues/${notifications.id}`).send({ is_paused: false });
+      await ctx.workerService.pollOnce();
+      expect((await request(ctx.app).get(`/api/jobs/${job.id}`)).body.data.status).toBe('completed');
     });
   });
 
-  describe('Job Enqueueing & Idempotency', () => {
-    it('POST /api/jobs enqueues a new job successfully', async () => {
-      const payload = { recipient: 'team@tech.ee', subject: 'Platform Alert' };
-      const res = await request(ctx.app).post('/api/jobs').send({
-        queue_name: 'notifications',
-        name: 'send_alert_email',
-        priority: 'high',
-        payload,
-      });
-
+  describe('enqueueing', () => {
+    it('creates a job with the requested priority', async () => {
+      const res = await request(ctx.app)
+        .post('/api/jobs')
+        .send({ queue_name: 'notifications', name: 'send_alert_email', priority: 'high', payload: { to: 'ops@example.com' } });
       expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.name).toBe('send_alert_email');
-      expect(res.body.data.status).toBe('queued');
-      expect(res.body.data.priority).toBe('high');
+      expect(res.body.data).toMatchObject({ name: 'send_alert_email', status: 'queued', priority: 'high', attempts: 0 });
       expect(res.body.meta.idempotent_duplicate).toBe(false);
     });
 
-    it('POST /api/jobs respects idempotency key and prevents duplicate execution', async () => {
-      const idempotencyKey = 'idem_unique_tx_12345';
-      const body = {
-        queue_name: 'billing-webhooks',
-        name: 'process_invoice_payment',
-        idempotency_key: idempotencyKey,
-        payload: { invoiceId: 'inv_8871', amount: 4900 },
-      };
-
-      // First call: 201 Created
-      const res1 = await request(ctx.app).post('/api/jobs').send(body);
-      expect(res1.status).toBe(201);
-      expect(res1.body.meta.idempotent_duplicate).toBe(false);
-      const createdId = res1.body.data.id;
-
-      // Second call with same idempotency key: 200 OK returning existing job
-      const res2 = await request(ctx.app).post('/api/jobs').send(body);
-      expect(res2.status).toBe(200);
-      expect(res2.body.meta.idempotent_duplicate).toBe(true);
-      expect(res2.body.data.id).toBe(createdId);
+    it('uses the queue default for max_retries and honours an override', async () => {
+      const a = await request(ctx.app).post('/api/jobs').send({ queue_name: 'heavy-reports', name: 'a' });
+      expect(a.body.data.max_retries).toBe(2);
+      const b = await request(ctx.app).post('/api/jobs').send({ queue_name: 'heavy-reports', name: 'b', max_retries: 7 });
+      expect(b.body.data.max_retries).toBe(7);
     });
 
-    it('GET /api/jobs filters jobs by queue and status', async () => {
+    it('delays execution with delay_seconds', async () => {
+      const res = await request(ctx.app).post('/api/jobs').send({ queue_name: 'notifications', name: 'later', delay_seconds: 120 });
+      expect(new Date(res.body.data.run_at).getTime()).toBeGreaterThan(Date.now() + 100_000);
+      expect(await ctx.workerService.pollOnce()).toBe(1); // only the seeded report is due
+      expect((await request(ctx.app).get(`/api/jobs/${res.body.data.id}`)).body.data.status).toBe('queued');
+    });
+
+    it('returns the existing job for a repeated idempotency key', async () => {
+      const body = { queue_name: 'billing-webhooks', name: 'process_invoice', idempotency_key: 'tx-1', payload: { n: 1 } };
+      const first = await request(ctx.app).post('/api/jobs').send(body);
+      const second = await request(ctx.app).post('/api/jobs').send({ ...body, payload: { n: 2 } });
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(200);
+      expect(second.body.meta.idempotent_duplicate).toBe(true);
+      expect(second.body.data.id).toBe(first.body.data.id);
+      expect(second.body.data.payload).toEqual({ n: 1 });
+    });
+
+    it('answers 404 for an unknown queue', async () => {
+      const res = await request(ctx.app).post('/api/jobs').send({ queue_name: 'ghost', name: 'x' });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('ghost');
+    });
+
+    it.each([
+      [{ name: 'x' }, 'queue_name'],
+      [{ queue_name: 'notifications' }, 'name'],
+      [{ queue_name: 'notifications', name: '  ' }, 'name'],
+      [{ queue_name: 'notifications', name: 'x', priority: 'urgent' }, 'priority'],
+      [{ queue_name: 'notifications', name: 'x', delay_seconds: -5 }, 'delay_seconds'],
+      [{ queue_name: 'notifications', name: 'x', delay_seconds: 'soon' }, 'delay_seconds'],
+      [{ queue_name: 'notifications', name: 'x', max_retries: 0 }, 'max_retries'],
+      [{ queue_name: 'notifications', name: 'x', max_retries: 99 }, 'max_retries'],
+      [{ queue_name: 'notifications', name: 'x', payload: [1, 2] }, 'payload'],
+      [{ queue_name: 'notifications', name: 'x', idempotency_key: 'k'.repeat(300) }, 'idempotency_key'],
+      [{ queue_name: 'notifications', name: 'n'.repeat(201) }, 'name'],
+    ])('rejects the invalid enqueue body %j', async (body, field) => {
+      const res = await request(ctx.app).post('/api/jobs').send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain(field);
+    });
+
+    it('rejects a body that is not an object', async () => {
+      const res = await request(ctx.app).post('/api/jobs').send([1]);
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('listing jobs', () => {
+    it('filters by status', async () => {
       const res = await request(ctx.app).get('/api/jobs?status=dlq');
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data.length).toBe(1);
       expect(res.body.data.every((j: any) => j.status === 'dlq')).toBe(true);
+      expect(res.body.meta.total).toBe(1);
     });
 
-    it('GET /api/jobs/:id returns complete job with attempt history', async () => {
-      const jobsRes = await request(ctx.app).get('/api/jobs?status=dlq');
-      const dlqJob = jobsRes.body.data[0];
+    it('filters by queue and priority and searches names and payloads', async () => {
+      const queues = (await request(ctx.app).get('/api/queues')).body.data;
+      const billing = queues.find((q: any) => q.name === 'billing-webhooks');
+      const byQueue = await request(ctx.app).get(`/api/jobs?queue_id=${billing.id}`);
+      expect(byQueue.body.data.map((j: any) => j.name)).toEqual(['reconcile_stripe_charge']);
 
-      const res = await request(ctx.app).get(`/api/jobs/${dlqJob.id}`);
-      expect(res.status).toBe(200);
-      expect(res.body.data.id).toBe(dlqJob.id);
-      expect(res.body.data.attempts_list).toBeDefined();
-      expect(res.body.data.attempts_list.length).toBeGreaterThan(0);
-    });
-  });
+      const high = await request(ctx.app).get('/api/jobs?priority=high');
+      expect(high.body.data.map((j: any) => j.name)).toEqual(['reconcile_stripe_charge']);
 
-  describe('Worker Processing, Retries & DLQ Flow', () => {
-    it('worker processes a successful job and records attempt', async () => {
-      // 1. Enqueue job
-      const enqueueRes = await request(ctx.app).post('/api/jobs').send({
-        queue_name: 'notifications',
-        name: 'send_welcome_email',
-        payload: { email: 'dev@flowqueue.io' },
-      });
-      const jobId = enqueueRes.body.data.id;
-
-      // 2. Trigger worker poll
-      const processedCount = await ctx.workerService.pollOnce();
-      expect(processedCount).toBeGreaterThan(0);
-
-      // 3. Verify job is completed
-      const jobRes = await request(ctx.app).get(`/api/jobs/${jobId}`);
-      expect(jobRes.body.data.status).toBe('completed');
-      expect(jobRes.body.data.result).toBeDefined();
-      expect(jobRes.body.data.attempts).toBe(1);
-      expect(jobRes.body.data.attempts_list.length).toBe(1);
-      expect(jobRes.body.data.attempts_list[0].status).toBe('completed');
+      const byName = await request(ctx.app).get('/api/jobs?search=welcome');
+      expect(byName.body.data.map((j: any) => j.name)).toEqual(['send_welcome_email']);
+      const byPayload = await request(ctx.app).get('/api/jobs?search=wh_tallinn_01');
+      expect(byPayload.body.data.map((j: any) => j.name)).toEqual(['sync_erp_inventory']);
     });
 
-    it('worker retries failing job with backoff and transitions to DLQ when max retries exceeded', async () => {
-      // Enqueue job configured with max_retries: 2 and simulated failure
-      const enqueueRes = await request(ctx.app).post('/api/jobs').send({
-        queue_name: 'data-sync',
-        name: 'sync_data_failing',
-        max_retries: 2,
-        payload: { should_fail: true, error_message: 'Remote warehouse API unavailable' },
-      });
-      const jobId = enqueueRes.body.data.id;
+    it('treats LIKE wildcards in a search as plain text', async () => {
+      expect((await request(ctx.app).get('/api/jobs?search=%25')).body.data).toHaveLength(0);
+      expect((await request(ctx.app).get('/api/jobs?search=__')).body.data).toHaveLength(0);
+    });
 
-      // Attempt 1: Fails, rescheduled with exponential backoff
-      await ctx.workerService.pollOnce();
-      let job = (await request(ctx.app).get(`/api/jobs/${jobId}`)).body.data;
-      expect(job.status).toBe('queued');
-      expect(job.attempts).toBe(1);
-      expect(job.error).toContain('Remote warehouse API unavailable');
+    it('paginates with limit and offset', async () => {
+      const page = await request(ctx.app).get('/api/jobs?limit=2&offset=1');
+      expect(page.body.data).toHaveLength(2);
+      expect(page.body.meta).toEqual({ total: 4, limit: 2, offset: 1 });
+    });
 
-      // Fast-forward run_at to now for test purposes
-      ctx.db.prepare("UPDATE jobs SET run_at = datetime('now', '-1 minute') WHERE id = ?;").run(jobId);
+    it.each(['status=exploded', 'priority=urgent', 'limit=0', 'limit=500', 'limit=abc', 'offset=-1'])(
+      'rejects the invalid query %s',
+      async (query) => {
+        const res = await request(ctx.app).get(`/api/jobs?${query}`);
+        expect(res.status).toBe(400);
+      }
+    );
 
-      // Attempt 2: Max retries (2) reached -> DLQ!
-      await ctx.workerService.pollOnce();
-      job = (await request(ctx.app).get(`/api/jobs/${jobId}`)).body.data;
-      expect(job.status).toBe('dlq');
-      expect(job.attempts).toBe(2);
-
-      // 4. DLQ Replay: POST /api/jobs/:id/retry
-      const replayRes = await request(ctx.app).post(`/api/jobs/${jobId}/retry`);
-      expect(replayRes.status).toBe(200);
-      expect(replayRes.body.data.status).toBe('queued');
-      expect(replayRes.body.data.error).toBeNull();
+    it('returns a job with its attempt history, or 404', async () => {
+      const dlq = (await request(ctx.app).get('/api/jobs?status=dlq')).body.data[0];
+      const res = await request(ctx.app).get(`/api/jobs/${dlq.id}`);
+      expect(res.body.data.attempts_list.map((a: any) => a.attempt_number)).toEqual([1, 2, 3]);
+      expect((await request(ctx.app).get('/api/jobs/missing')).status).toBe(404);
     });
   });
 
-  describe('Webhook Dispatcher & HMAC-SHA256 Signatures', () => {
-    it('POST /api/webhooks/subscriptions creates subscription', async () => {
-      const res = await request(ctx.app).post('/api/webhooks/subscriptions').send({
-        name: 'Audit Webhook',
-        url: 'https://audit.corp.internal/hooks',
-        secret: 'whsec_secret_sample_key',
-        events: ['job.completed', 'job.dlq'],
+  describe('worker, retries and dead letters', () => {
+    async function job(id: string) {
+      return (await request(ctx.app).get(`/api/jobs/${id}`)).body.data;
+    }
+
+    it('completes a job, records the attempt and sends job.completed', async () => {
+      const id = (
+        await request(ctx.app)
+          .post('/api/jobs')
+          .send({ queue_name: 'notifications', name: 'send_welcome_email', payload: { email: 'dev@example.com' } })
+      ).body.data.id;
+      expect(await ctx.workerService.pollOnce()).toBeGreaterThan(0);
+      await ctx.webhookService.idle();
+
+      const done = await job(id);
+      expect(done.status).toBe('completed');
+      expect(done.result).toMatchObject({ recipient: 'dev@example.com', status: 'delivered' });
+      expect(done.attempts).toBe(1);
+      expect(done.attempts_list).toHaveLength(1);
+      expect(done.attempts_list[0]).toMatchObject({ status: 'completed', worker_id: ctx.workerService.workerId });
+      expect(sent.map((s) => s.headers['X-FlowQueue-Event'])).toContain('job.completed');
+    });
+
+    it('backs off exponentially, then dead-letters and replays with one more run', async () => {
+      const id = (
+        await request(ctx.app).post('/api/jobs').send({
+          queue_name: 'data-sync',
+          name: 'sync_failing',
+          max_retries: 2,
+          payload: { should_fail: true, error_message: 'Warehouse unavailable' },
+        })
+      ).body.data.id;
+
+      const before = Date.now();
+      await ctx.workerService.pollOnce();
+      let current = await job(id);
+      expect(current).toMatchObject({ status: 'queued', attempts: 1 });
+      expect(current.error).toBe('Warehouse unavailable');
+      // data-sync backs off 5s after the first failure (jitter is pinned to 0 here)
+      const delayMs = new Date(current.run_at).getTime() - before;
+      expect(delayMs).toBeGreaterThanOrEqual(4900);
+      expect(delayMs).toBeLessThan(6000);
+
+      ctx.db.prepare('UPDATE jobs SET run_at = ? WHERE id = ?').run('2020-01-01T00:00:00.000Z', id);
+      await ctx.workerService.pollOnce();
+      current = await job(id);
+      expect(current).toMatchObject({ status: 'dlq', attempts: 2 });
+      await ctx.webhookService.idle();
+      const events = sent.map((s) => s.headers['X-FlowQueue-Event']);
+      expect(events).toEqual(expect.arrayContaining(['job.failed', 'job.dlq']));
+
+      const replay = await request(ctx.app).post(`/api/jobs/${id}/retry`);
+      expect(replay.status).toBe(200);
+      expect(replay.body.data).toMatchObject({ status: 'queued', error: null, max_retries: 3 });
+
+      await ctx.workerService.pollOnce();
+      expect(await job(id)).toMatchObject({ status: 'dlq', attempts: 3 });
+    });
+
+    it('runs a replayed job to completion once the cause is gone', async () => {
+      const dlq = (await request(ctx.app).get('/api/jobs?status=dlq')).body.data[0];
+      await request(ctx.app).post(`/api/jobs/${dlq.id}/retry`);
+      await ctx.workerService.pollOnce();
+      expect(await job(dlq.id)).toMatchObject({ status: 'completed', attempts: 4 });
+    });
+
+    it('only replays dead-lettered jobs', async () => {
+      const queued = (await request(ctx.app).get('/api/jobs?status=queued')).body.data[0];
+      const res = await request(ctx.app).post(`/api/jobs/${queued.id}/retry`);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('queued');
+      expect((await request(ctx.app).post('/api/jobs/missing/retry')).status).toBe(404);
+    });
+
+    it('lets a registered handler produce the result and fail on throw', async () => {
+      const { ctx: custom } = createTestApp();
+      const worker = new WorkerService(custom.jobRepo, custom.queueRepo, custom.webhookService, {
+        handlerDelayMs: 0,
+        random: () => 0,
+        handlers: {
+          resize_image: async (j) => ({ width: j.payload.width }),
+          explode: () => {
+            throw new Error('handler blew up');
+          },
+        },
       });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.name).toBe('Audit Webhook');
+      const ok = custom.queueService.enqueue({ queue_name: 'notifications', name: 'resize_image', payload: { width: 640 } }).job;
+      const bad = custom.queueService.enqueue({ queue_name: 'notifications', name: 'explode', payload: {}, max_retries: 1 }).job;
+      await worker.pollOnce();
+      expect(custom.jobRepo.getJobById(ok.id)).toMatchObject({ status: 'completed', result: { width: 640 } });
+      expect(custom.jobRepo.getJobById(bad.id)).toMatchObject({ status: 'dlq', error: 'handler blew up' });
     });
+  });
 
-    it('generates and verifies HMAC-SHA256 signature accurately', () => {
-      const secret = 'super_secure_secret_token';
-      const body = JSON.stringify({ event: 'job.completed', id: 'job_123' });
-
-      const signature = ctx.webhookService.generateSignature(body, secret);
-      expect(signature).toMatch(/^sha256=[a-f0-9]{64}$/);
-
-      const isValid = ctx.webhookService.verifySignature(body, secret, signature);
-      expect(isValid).toBe(true);
-
-      const isInvalid = ctx.webhookService.verifySignature(body, 'wrong_secret', signature);
-      expect(isInvalid).toBe(false);
-    });
-
-    it('POST /api/webhooks/test-receiver receives and responds to test webhook', async () => {
-      const res = await request(ctx.app)
-        .post('/api/webhooks/test-receiver')
-        .set('X-FlowQueue-Event', 'job.completed')
-        .set('X-FlowQueue-Signature', 'sha256=abcdef1234567890')
-        .send({ test: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('received');
-      expect(res.body.event).toBe('job.completed');
+  describe('capacity', () => {
+    it('never runs more jobs of a queue than its concurrency allows', async () => {
+      const heavy = (await request(ctx.app).get('/api/queues')).body.data.find((q: any) => q.name === 'heavy-reports');
+      expect(heavy.concurrency).toBe(1);
+      await request(ctx.app).post('/api/jobs').send({ queue_name: 'heavy-reports', name: 'r2' });
+      await request(ctx.app).post('/api/jobs').send({ queue_name: 'heavy-reports', name: 'r3' });
+      const claimed = ctx.jobRepo.claimEligibleJobs(10, 'w1');
+      expect(claimed).toHaveLength(1);
+      const queues = (await request(ctx.app).get('/api/queues')).body.data;
+      expect(queues.find((q: any) => q.name === 'heavy-reports').active_jobs).toBe(1);
     });
   });
 });

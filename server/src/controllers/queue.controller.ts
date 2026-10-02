@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { QueueService } from '../services/queue.service.js';
+import { parseQueueUpdate } from '../lib/validation.js';
 
 export class QueueController {
   constructor(private queueService: QueueService) {}
@@ -15,9 +16,7 @@ export class QueueController {
 
   update = (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
-      const { is_paused, concurrency, max_retries } = req.body;
-      const updated = this.queueService.updateQueue(id, { is_paused, concurrency, max_retries });
+      const updated = this.queueService.updateQueue(req.params.id, parseQueueUpdate(req.body));
       if (!updated) {
         res.status(404).json({ success: false, error: 'Queue not found' });
         return;

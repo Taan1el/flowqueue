@@ -37,11 +37,12 @@ export function seedDatabase(db: DatabaseSync): void {
   const subInternal = crypto.randomUUID();
   const subPartner = crypto.randomUUID();
 
+  const internalSecret = 'whsec_flowqueue_sample_secret_99';
   insertWebhook.run(
     subInternal,
     'Internal Event Sink',
-    'http://localhost:4000/api/webhooks/test-receiver',
-    'whsec_flowqueue_demo_secret_key_99',
+    `http://localhost:${process.env.PORT || 4000}/api/webhooks/test-receiver`,
+    internalSecret,
     JSON.stringify(['job.completed', 'job.failed', 'job.dlq']),
     1,
     now
@@ -209,13 +210,23 @@ export function seedDatabase(db: DatabaseSync): void {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
+  // The stored signature is a genuine HMAC-SHA256 of the stored body, the
+  // same construction WebhookService uses for live deliveries.
+  const deliveryBody = JSON.stringify({
+    id: crypto.randomUUID(),
+    event: 'job.completed',
+    created_at: past5m,
+    data: { jobId: job1Id, name: 'send_welcome_email', queue: 'notifications' },
+  });
+  const deliverySignature = `sha256=${crypto.createHmac('sha256', internalSecret).update(deliveryBody, 'utf8').digest('hex')}`;
+
   insertDelivery.run(
     crypto.randomUUID(),
     subInternal,
     'job.completed',
-    JSON.stringify({ jobId: job1Id, name: 'send_welcome_email', queue: 'notifications' }),
+    deliveryBody,
     200,
-    'sha256=d3b07384d113edec49eaa6238ad5ff00',
+    deliverySignature,
     48,
     past5m,
     JSON.stringify({ status: 'received', timestamp: past5m })

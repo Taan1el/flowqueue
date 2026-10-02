@@ -1,6 +1,7 @@
 import { QueueRepository, QueueWithStats } from '../repositories/queue.repository.js';
 import { JobRepository, ListJobsFilter } from '../repositories/job.repository.js';
 import { EnqueueJobDto, Job, JobPriority, UpdateQueueDto } from '../../../shared/types.js';
+import { HttpError } from '../lib/errors.js';
 
 export class QueueService {
   constructor(
@@ -18,13 +19,13 @@ export class QueueService {
 
   enqueue(dto: EnqueueJobDto): { job: Job; duplicate: boolean } {
     if (!dto.queue_name || !dto.name) {
-      throw new Error('queue_name and name are required to enqueue a job');
+      throw new HttpError(400, 'queue_name and name are required to enqueue a job');
     }
 
     // 1. Resolve queue
-    let queue = this.queueRepo.getQueueByName(dto.queue_name);
+    const queue = this.queueRepo.getQueueByName(dto.queue_name);
     if (!queue) {
-      throw new Error(`Queue '${dto.queue_name}' does not exist.`);
+      throw new HttpError(404, `Queue '${dto.queue_name}' does not exist.`);
     }
 
     // 2. Check Idempotency Key
@@ -62,15 +63,15 @@ export class QueueService {
   retryJob(id: string): Job {
     const job = this.jobRepo.getJobById(id);
     if (!job) {
-      throw new Error(`Job ${id} not found`);
+      throw new HttpError(404, `Job ${id} not found`);
     }
-    if (job.status !== 'dlq' && job.status !== 'failed') {
-      throw new Error(`Only failed or DLQ jobs can be replayed (current status: ${job.status})`);
+    if (job.status !== 'dlq') {
+      throw new HttpError(409, `Only dead-lettered jobs can be replayed (current status: ${job.status})`);
     }
 
     const replayed = this.jobRepo.replayDlqJob(id);
     if (!replayed) {
-      throw new Error(`Could not replay job ${id}`);
+      throw new HttpError(409, `Could not replay job ${id}`);
     }
     return replayed;
   }

@@ -1,35 +1,43 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { api, QueueWithStats } from './services/api';
-import { Job, JobPriority, JobStatus, QueueMetrics, WebhookDelivery, WebhookSubscription } from '../../shared/types';
-import { MetricsBanner } from './components/MetricsBanner';
-import { QueueCard } from './components/QueueCard';
-import { JobList } from './components/JobList';
-import { JobDrawer } from './components/JobDrawer';
-import { EnqueueJobModal } from './components/EnqueueJobModal';
-import { WebhookDeliveries } from './components/WebhookDeliveries';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { TriangleAlert } from 'lucide-react';
+import { api } from './services/index.js';
+import type { QueueWithStats } from './services/index.js';
+import type { Job, JobPriority, JobStatus, QueueMetrics, WebhookDelivery, WebhookSubscription } from '../../shared/types.js';
+import { Header } from './components/Header.js';
+import { DemoBanner } from './components/DemoBanner.js';
+import { StatsBar } from './components/StatsBar.js';
+import { QueuesTable } from './components/QueuesTable.js';
+import { JobsTable } from './components/JobsTable.js';
+import { EnqueueForm } from './components/EnqueueForm.js';
+import { DeadLetters } from './components/DeadLetters.js';
+import { WebhookPanel } from './components/WebhookPanel.js';
+import { JobInspector } from './components/JobInspector.js';
+import { formatCount } from './utils/pluralize.js';
 import './App.css';
 
 export const App: React.FC = () => {
   const [metrics, setMetrics] = useState<QueueMetrics | null>(null);
   const [queues, setQueues] = useState<QueueWithStats[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsTotal, setJobsTotal] = useState(0);
+  const [deadLetters, setDeadLetters] = useState<Job[]>([]);
   const [webhookSubs, setWebhookSubs] = useState<WebhookSubscription[]>([]);
   const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
 
-  const [activeTab, setActiveTab] = useState<'tasks' | 'webhooks'>('tasks');
   const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<JobStatus | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<JobPriority | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [inspectedJobId, setInspectedJobId] = useState<string | null>(null);
-  const [isEnqueueModalOpen, setIsEnqueueModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const queueSelectRef = useRef<HTMLSelectElement>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [m, q, jList, subs, dels] = await Promise.all([
+      const [m, q, jList, dlq, subs, dels] = await Promise.all([
         api.getMetrics(),
         api.getQueues(),
         api.listJobs({
@@ -38,6 +46,7 @@ export const App: React.FC = () => {
           priority: priorityFilter || undefined,
           search: searchQuery.trim() || undefined,
         }),
+        api.listJobs({ status: 'dlq' }),
         api.getWebhookSubscriptions(),
         api.getWebhookDeliveries(),
       ]);
@@ -45,10 +54,13 @@ export const App: React.FC = () => {
       setMetrics(m);
       setQueues(q);
       setJobs(jList.jobs);
+      setJobsTotal(jList.total);
+      setDeadLetters(dlq.jobs);
       setWebhookSubs(subs);
       setWebhookDeliveries(dels);
-    } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || 'Could not load dashboard data');
     }
   }, [selectedQueueId, statusFilter, priorityFilter, searchQuery]);
 
@@ -57,7 +69,7 @@ export const App: React.FC = () => {
     loadData().finally(() => setLoading(false));
   }, [loadData]);
 
-  // Periodic polling for real-time queue synchronization
+  // Poll so queue depth and job states stay current.
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
@@ -69,126 +81,129 @@ export const App: React.FC = () => {
   const handleTogglePause = async (queueId: string, currentPaused: boolean) => {
     try {
       await api.updateQueue(queueId, { is_paused: !currentPaused });
-      loadData();
+      await loadData();
     } catch (err: any) {
-      alert(`Error updating queue: ${err.message}`);
+      setError(`Could not update the queue: ${err.message}`);
     }
   };
 
   const handleReplayJob = async (jobId: string) => {
     try {
       await api.retryJob(jobId);
-      loadData();
+      await loadData();
     } catch (err: any) {
-      alert(`Error replaying job: ${err.message}`);
+      setError(`Could not replay the job: ${err.message}`);
     }
+  };
+
+  const focusEnqueueForm = () => {
+    document.getElementById('enqueue-form')?.scrollIntoView({ block: 'start' });
+    queueSelectRef.current?.focus();
   };
 
   return (
     <div className="app-container">
-      <MetricsBanner
-        metrics={metrics}
+      <DemoBanner onReset={loadData} />
+
+      <Header
         loading={loading}
         onRefresh={loadData}
         autoRefresh={autoRefresh}
         onToggleAutoRefresh={() => setAutoRefresh((prev) => !prev)}
+        onEnqueue={focusEnqueueForm}
       />
 
-      <main className="main-content">
-        <div className="content-tabs-bar">
-          <div className="tabs-nav" role="tablist">
-            <button
-              className={`tab-btn ${activeTab === 'tasks' ? 'active' : ''}`}
-              onClick={() => setActiveTab('tasks')}
-              role="tab"
-              aria-selected={activeTab === 'tasks'}
-            >
-              📋 Queue Engine & Tasks
-            </button>
-            <button
-              className={`tab-btn ${activeTab === 'webhooks' ? 'active' : ''}`}
-              onClick={() => setActiveTab('webhooks')}
-              role="tab"
-              aria-selected={activeTab === 'webhooks'}
-            >
-              🔔 Webhooks & Dispatches ({webhookDeliveries.length})
+      <main className="app-main">
+        {error && (
+          <div className="alert">
+            <span className="alert-message">
+              <TriangleAlert size={16} strokeWidth={1.75} aria-hidden="true" />
+              <output>{error}</output>
+            </span>
+            <button className="btn btn-secondary btn-compact" onClick={() => setError(null)}>
+              Dismiss
             </button>
           </div>
-
-          <button
-            className="btn btn-primary"
-            onClick={() => setIsEnqueueModalOpen(true)}
-            aria-label="Enqueue New Background Task"
-          >
-            + Enqueue Task
-          </button>
-        </div>
-
-        {activeTab === 'tasks' ? (
-          <>
-            <section className="queues-section" aria-label="Task Queues">
-              <div className="section-title-wrap">
-                <h2 className="section-heading">Active Queues</h2>
-                {selectedQueueId && (
-                  <button
-                    className="btn btn-link btn-xs"
-                    onClick={() => setSelectedQueueId(null)}
-                  >
-                    Clear Filter
-                  </button>
-                )}
-              </div>
-              <div className="queues-grid">
-                {queues.map((q) => (
-                  <QueueCard
-                    key={q.id}
-                    queue={q}
-                    isSelected={selectedQueueId === q.id}
-                    onSelectQueue={(id) => setSelectedQueueId((prev) => (prev === id ? null : id))}
-                    onTogglePause={handleTogglePause}
-                  />
-                ))}
-              </div>
-            </section>
-
-            <section className="jobs-section" aria-label="Task List">
-              <JobList
-                jobs={jobs}
-                queues={queues}
-                selectedQueueId={selectedQueueId}
-                onSelectQueueId={setSelectedQueueId}
-                statusFilter={statusFilter}
-                onSelectStatusFilter={setStatusFilter}
-                priorityFilter={priorityFilter}
-                onSelectPriorityFilter={setPriorityFilter}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onInspectJob={(id) => setInspectedJobId(id)}
-                onReplayJob={handleReplayJob}
-              />
-            </section>
-          </>
-        ) : (
-          <WebhookDeliveries
-            subscriptions={webhookSubs}
-            deliveries={webhookDeliveries}
-            onRefresh={loadData}
-          />
         )}
+
+        <StatsBar metrics={metrics} />
+
+        <section aria-labelledby="queues-heading">
+          <div className="section-head">
+            <h2 className="section-heading" id="queues-heading">
+              Queues
+            </h2>
+            <p className="section-description">
+              Each queue runs at most its capacity in jobs at once; pausing stops new jobs from starting.
+            </p>
+          </div>
+          <QueuesTable
+            queues={queues}
+            selectedQueueId={selectedQueueId}
+            onSelectQueue={(id) => setSelectedQueueId((prev) => (prev === id ? null : id))}
+            onTogglePause={handleTogglePause}
+          />
+        </section>
+
+        <section aria-labelledby="jobs-heading">
+          <div className="section-head">
+            <h2 className="section-heading" id="jobs-heading">
+              Jobs
+            </h2>
+            <p className="section-description">{`${formatCount(jobsTotal, 'job')} match the filters, newest first.`}</p>
+          </div>
+          <div className="split">
+            <JobsTable
+              jobs={jobs}
+              queues={queues}
+              selectedQueueId={selectedQueueId}
+              onSelectQueueId={setSelectedQueueId}
+              statusFilter={statusFilter}
+              onSelectStatusFilter={setStatusFilter}
+              priorityFilter={priorityFilter}
+              onSelectPriorityFilter={setPriorityFilter}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onInspectJob={setInspectedJobId}
+              onReplayJob={handleReplayJob}
+            />
+            <EnqueueForm queues={queues} onJobEnqueued={loadData} ref={queueSelectRef} />
+          </div>
+        </section>
+
+        <section aria-labelledby="dlq-heading">
+          <div className="section-head">
+            <h2 className="section-heading" id="dlq-heading">
+              Dead letters
+            </h2>
+            <p className="section-description">Jobs that used all of their attempts. Replaying one grants a single extra run.</p>
+          </div>
+          <DeadLetters jobs={deadLetters} onInspectJob={setInspectedJobId} onReplayJob={handleReplayJob} />
+        </section>
+
+        <section aria-labelledby="webhooks-heading">
+          <div className="section-head">
+            <h2 className="section-heading" id="webhooks-heading">
+              Webhook deliveries
+            </h2>
+            <p className="section-description">
+              Job events are posted once to each subscribed endpoint with an HMAC-SHA256 signature header.
+            </p>
+          </div>
+          <WebhookPanel subscriptions={webhookSubs} deliveries={webhookDeliveries} onRefresh={loadData} />
+        </section>
       </main>
 
-      <JobDrawer
-        jobId={inspectedJobId}
-        onClose={() => setInspectedJobId(null)}
-        onJobUpdated={loadData}
-      />
+      <footer className="app-footer">
+        <div>FlowQueue &middot; MIT License</div>
+        <a href="https://github.com/Taan1el/flowqueue" target="_blank" rel="noreferrer">
+          Source on GitHub
+        </a>
+      </footer>
 
-      <EnqueueJobModal
-        queues={queues}
-        isOpen={isEnqueueModalOpen}
-        onClose={() => setIsEnqueueModalOpen(false)}
-        onJobEnqueued={loadData}
-      />
+      <JobInspector jobId={inspectedJobId} onClose={() => setInspectedJobId(null)} onJobUpdated={loadData} />
     </div>
   );
 };
+
+export default App;

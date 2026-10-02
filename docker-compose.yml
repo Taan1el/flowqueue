@@ -1,42 +1,24 @@
-version: '3.8'
-
 services:
-  web:
+  flowqueue:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: flowqueue-web
+    container_name: flowqueue
     ports:
       - "4000:4000"
     environment:
       - NODE_ENV=production
       - PORT=4000
       - DB_PATH=/app/data/flowqueue.db
+      - LEASE_SECONDS=60
     volumes:
       - flowqueue-data:/app/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 3
-    restart: unless-stopped
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: flowqueue-worker
-    environment:
-      - NODE_ENV=production
-      - DB_PATH=/app/data/flowqueue.db
-      - WORKER_CONCURRENCY=5
-    volumes:
-      - flowqueue-data:/app/data
-    depends_on:
-      web:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   flowqueue-data:
-    driver: local

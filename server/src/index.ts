@@ -1,12 +1,17 @@
 import { createApp } from './app.js';
 
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT) || 4000;
 const DB_PATH = process.env.DB_PATH || './data/flowqueue.db';
+const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_MS) || 1000;
+const LEASE_SECONDS = Number(process.env.LEASE_SECONDS) || 60;
+const BATCH_SIZE = Number(process.env.WORKER_BATCH_SIZE) || 5;
 
-const { app, workerService } = createApp(DB_PATH, true);
+const { app, workerService, webhookService } = createApp(DB_PATH, true, {
+  leaseSeconds: LEASE_SECONDS,
+  worker: { batchSize: BATCH_SIZE },
+});
 
-// Start background task worker
-workerService.start(1000);
+workerService.start(POLL_INTERVAL_MS);
 console.log(`[FlowQueue Worker] Background task worker started (${workerService.workerId})`);
 
 const server = app.listen(PORT, () => {
@@ -17,8 +22,10 @@ function gracefulShutdown(signal: string) {
   console.log(`\nReceived ${signal}, shutting down gracefully...`);
   workerService.stop();
   server.close(() => {
-    console.log('HTTP server closed.');
-    process.exit(0);
+    webhookService.idle().finally(() => {
+      console.log('HTTP server closed.');
+      process.exit(0);
+    });
   });
 }
 

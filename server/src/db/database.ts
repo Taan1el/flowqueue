@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export function createDatabase(dbPath?: string): DatabaseSync {
-  const finalPath = dbPath || process.env.DATABASE_URL || './data/flowqueue.db';
+  const finalPath = dbPath || process.env.DB_PATH || './data/flowqueue.db';
 
   if (finalPath !== ':memory:') {
     const dir = path.dirname(path.resolve(finalPath));

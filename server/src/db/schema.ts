@@ -27,6 +27,8 @@ export function initializeSchema(db: DatabaseSync): void {
       run_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      locked_by TEXT,
+      locked_until TEXT,
       FOREIGN KEY (queue_id) REFERENCES queues(id) ON DELETE CASCADE
     );
 
@@ -81,4 +83,9 @@ export function initializeSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub 
       ON webhook_deliveries(subscription_id, delivered_at DESC);
   `);
+
+  // Databases created before worker leases existed lack the lock columns.
+  const columns = (db.prepare('PRAGMA table_info(jobs);').all() as { name: string }[]).map((c) => c.name);
+  if (!columns.includes('locked_by')) db.exec('ALTER TABLE jobs ADD COLUMN locked_by TEXT;');
+  if (!columns.includes('locked_until')) db.exec('ALTER TABLE jobs ADD COLUMN locked_until TEXT;');
 }

@@ -2,8 +2,30 @@ import crypto from 'node:crypto';
 import { WebhookRepository } from '../repositories/webhook.repository.js';
 import { WebhookDelivery, WebhookSubscription } from '../../../shared/types.js';
 
+export interface WebhookServiceOptions {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
+
 export class WebhookService {
-  constructor(private webhookRepo: WebhookRepository) {}
+  private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
+  private pending = new Set<Promise<unknown>>();
+
+  constructor(
+    private webhookRepo: WebhookRepository,
+    options: WebhookServiceOptions = {}
+  ) {
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
+    this.timeoutMs = options.timeoutMs ?? 6000;
+  }
+
+  /** Resolves once every delivery started by dispatchJobEvent has been recorded. */
+  async idle(): Promise<void> {
+    while (this.pending.size > 0) {
+      await Promise.allSettled([...this.pending]);
+    }
+  }
 
   generateSignature(payloadString: string, secret: string): string {
     const hmac = crypto.createHmac('sha256', secret);
@@ -13,11 +35,9 @@ export class WebhookService {
 
   verifySignature(payloadString: string, secret: string, headerSignature: string): boolean {
     const expected = this.generateSignature(payloadString, secret);
-    try {
-      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(headerSignature));
-    } catch {
-      return false;
-    }
+    const a = Buffer.from(expected);
+    const b = Buffer.from(headerSignature);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
   async deliver(subscription: WebhookSubscription, event: string, payload: Record<string, unknown>): Promise<WebhookDelivery> {
@@ -34,7 +54,7 @@ export class WebhookService {
     let responseBody = '';
 
     try {
-      const response = await fetch(subscription.url, {
+      const response = await this.fetchImpl(subscription.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -44,7 +64,7 @@ export class WebhookService {
           'X-FlowQueue-Delivery': crypto.randomUUID(),
         },
         body: payloadString,
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
 
       statusCode = response.status;
@@ -71,10 +91,14 @@ export class WebhookService {
     const subscriptions = this.webhookRepo.listSubscriptions().filter((sub) => sub.is_active && sub.events.includes(event));
 
     for (const sub of subscriptions) {
-      // Fire asynchronously in background
-      this.deliver(sub, event, jobData).catch((e) => {
-        console.error(`[Webhook Dispatch Error] Failed to deliver to ${sub.url}:`, e);
-      });
+      // Single attempt, fired in the background. The outcome is logged in
+      // webhook_deliveries; a failed delivery is not retried.
+      const delivery = this.deliver(sub, event, jobData)
+        .catch((e) => {
+          console.error(`[Webhook Dispatch Error] Failed to deliver to ${sub.url}:`, e);
+        })
+        .finally(() => this.pending.delete(delivery));
+      this.pending.add(delivery);
     }
   }
 }

@@ -49,8 +49,10 @@ export const QueueTabs: React.FC<QueueTabsProps> = ({ queues, selectedQueueId, o
               </span>
             </button>
             <div className="queue-tab-foot">
-              <span className={q.dlq_jobs > 0 ? 'text-bad' : undefined}>{`${q.dlq_jobs} dead`}</span>
-              <span>{`${q.max_retries} tries, ${q.backoff_base_sec} s backoff`}</span>
+              <span className="queue-tab-facts">
+                <span className={q.dlq_jobs > 0 ? 'text-bad' : undefined}>{`${q.dlq_jobs} dead`}</span>
+                <span>{`${q.max_retries} tries, ${q.backoff_base_sec} s backoff`}</span>
+              </span>
               <button
                 className="btn btn-secondary btn-compact"
                 onClick={() => onTogglePause(q.id, q.is_paused)}

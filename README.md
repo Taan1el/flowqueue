@@ -14,7 +14,7 @@ The demo runs entirely in your browser. A small in-page engine applies the same 
 
 ## Screenshot
 
-![Dashboard with the stats strip, queues table, jobs table and enqueue form](docs/screenshots/01-dashboard.png)
+![Operator console with queue tabs on the left, the jobs table in the middle and the event log on the right](docs/screenshots/01-dashboard.png)
 
 More screenshots: [the job inspector](docs/screenshots/02-job-inspector.png), [dead letters and webhook deliveries](docs/screenshots/03-dead-letters-webhooks.png), [the dashboard at phone width](docs/screenshots/04-mobile.png).
 
@@ -27,7 +27,7 @@ More screenshots: [the job inspector](docs/screenshots/02-job-inspector.png), [d
 - **Worker leases.** A reserved job holds a lease. If the worker dies, the next poll returns the job to the queue and counts the lost run as a failed attempt.
 - **Idempotency keys.** Enqueueing with a key that already exists returns the existing job instead of creating a second one.
 - **Signed webhooks.** `job.completed`, `job.failed` and `job.dlq` are posted to subscribed endpoints with an `X-FlowQueue-Signature` HMAC-SHA256 header. Every delivery is logged with status, duration and signature.
-- **Dashboard.** A stats strip, a queues table with in-flight counts against capacity, a jobs table with filters and search, an enqueue form, dead letters, webhook deliveries and a job inspector with payload, result and attempts.
+- **Console.** A one-line telemetry bar, vertical queue tabs with depth, in-flight counts against capacity and pause controls, a jobs table with filters and search, a live event log (newest first), tabs under the table for dead letters, webhook deliveries and the enqueue form, and a job inspector with payload, result and attempts. Set in JetBrains Mono and Lexend with square corners and hairline rules.
 - **Demo mode** for GitHub Pages that needs no server.
 
 ## Getting started
@@ -125,7 +125,7 @@ server/src/
   lib/                  input validation, errors, repo path lookup
 server/test/            API, worker, lease, webhook, shared-logic and static-serving tests
 client/src/
-  components/           header, stats strip, queues and jobs tables, enqueue form, dead letters,
+  components/           header, telemetry bar, queue tabs, jobs table, event log, enqueue form, dead letters,
                         webhook panel, job inspector, demo banner
   services/             api.ts (real), demoApi.ts (browser), index.ts (chooses by build mode)
   demo/engine.ts        in-browser queue engine for the Pages build

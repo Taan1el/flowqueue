@@ -452,3 +452,22 @@ describe('FlowQueue dashboard', () => {
     });
   });
 });
+
+describe('job tool tabs', () => {
+  it('moves between tabs with the arrow keys', async () => {
+    vi.mocked(api.getMetrics).mockResolvedValue(metrics);
+    vi.mocked(api.getQueues).mockResolvedValue(queues);
+    vi.mocked(api.listJobs).mockImplementation(jobsFor as any);
+    vi.mocked(api.getWebhookSubscriptions).mockResolvedValue([subscription]);
+    vi.mocked(api.getWebhookDeliveries).mockResolvedValue([delivery]);
+    render(<App />);
+    await screen.findByText('send_welcome_email');
+    const first = screen.getByRole('tab', { name: /Dead letters/ });
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: /Webhooks/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Webhooks/ })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('tab', { name: /Webhooks/ }), { key: 'End' });
+    expect(screen.getByRole('tab', { name: 'Enqueue' })).toHaveAttribute('aria-selected', 'true');
+  });
+});

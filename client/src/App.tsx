@@ -113,6 +113,18 @@ export const App: React.FC = () => {
     queueSelectRef.current?.focus();
   }, [enqueueRequests]);
 
+  const handleTabKeys = (e: React.KeyboardEvent) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const ids = panels.map((p) => p.id);
+    const at = ids.indexOf(panel);
+    const next =
+      e.key === 'Home' ? 0 : e.key === 'End' ? ids.length - 1 : (at + (e.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length;
+    setPanel(ids[next]);
+    document.getElementById(`tab-${ids[next]}`)?.focus();
+  };
+
   const panels: { id: PanelId; label: string }[] = [
     { id: 'dead', label: `Dead letters (${deadLetters.length})` },
     { id: 'webhooks', label: `Webhooks (${webhookSubs.length})` },
@@ -182,7 +194,7 @@ export const App: React.FC = () => {
           </section>
 
           <section className="under-tabs" aria-label="Dead letters, webhooks and enqueue">
-            <div className="tabbar" role="tablist" aria-label="Job tools">
+            <div className="tabbar" role="tablist" aria-label="Job tools" onKeyDown={handleTabKeys}>
               {panels.map((p) => (
                 <button
                   key={p.id}
@@ -191,6 +203,7 @@ export const App: React.FC = () => {
                   id={`tab-${p.id}`}
                   aria-selected={panel === p.id}
                   aria-controls={`panel-${p.id}`}
+                  tabIndex={panel === p.id ? 0 : -1}
                   className="tab"
                   onClick={() => setPanel(p.id)}
                 >

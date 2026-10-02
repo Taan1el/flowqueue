@@ -223,7 +223,7 @@ textarea {
   padding-block: 1.5rem 3rem;
   padding-inline: var(--page-pad);
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr) 300px;
+  grid-template-columns: 264px minmax(0, 1fr) 300px;
   grid-template-areas: "alert alert alert" "rail work log";
   gap: 0 1.5rem;
   align-items: start;
@@ -418,17 +418,19 @@ textarea {
 
 .queue-tab-foot {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 0.75rem;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0 var(--step) var(--step);
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink-2);
 }
 
-.queue-tab-foot .btn {
-  margin-left: auto;
+.queue-tab-facts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 /* Tables */
@@ -453,13 +455,13 @@ textarea {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink-2);
-  padding: 0.5rem var(--step);
+  padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--rule-strong);
   white-space: nowrap;
 }
 
 .data-table td {
-  padding: 0 var(--step);
+  padding: 0 0.6rem;
   border-bottom: 1px solid var(--rule);
   vertical-align: middle;
 }
@@ -507,7 +509,12 @@ textarea {
   cursor: pointer;
 }
 
+.name-btn {
+  max-width: 300px;
+}
+
 .name-btn .primary {
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
@@ -540,26 +547,31 @@ textarea {
   width: 8px;
   height: 8px;
   flex-shrink: 0;
-  background-color: var(--ink-3);
+  background-color: var(--surface);
+  border: 1px solid var(--ink-2);
 }
 
 .dot-processing {
   background-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .dot-completed,
 .dot-active {
   background-color: var(--ok);
+  border-color: var(--ok);
 }
 
 .dot-paused,
 .dot-warn {
   background-color: var(--warn);
+  border-color: var(--warn);
 }
 
 .dot-dlq,
 .dot-bad {
   background-color: var(--bad);
+  border-color: var(--bad);
 }
 
 /* Flat meter */
@@ -973,9 +985,9 @@ textarea {
 
 .event {
   display: grid;
-  grid-template-columns: 4.5rem 3.5rem minmax(0, 1fr);
-  gap: 0 0.5rem;
-  padding: 0.4rem var(--step);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 0.75rem;
+  padding: 0.5rem var(--step);
   border-bottom: 1px solid var(--rule);
 }
 
@@ -992,6 +1004,7 @@ textarea {
 }
 
 .event-text {
+  grid-column: 1 / -1;
   overflow-wrap: anywhere;
 }
 

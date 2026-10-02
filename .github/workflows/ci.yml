@@ -1,34 +1,45 @@
-name: CI Pipeline
+name: CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [master]
   pull_request:
-    branches: [ master, main ]
+    branches: [master]
 
 jobs:
-  validate:
-    name: Lint, Test & Build
+  verify:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 24
-          cache: 'npm'
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:pages
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Run Typecheck & Lint
-        run: npm run lint
-
-      - name: Run Integration & Unit Tests
-        run: npm test
-
-      - name: Production Build
-        run: npm run build
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t flowqueue:ci .
+      - name: Start the container and check the API and the dashboard
+        run: |
+          docker run -d --name flowqueue -p 4000:4000 flowqueue:ci
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:4000/api/health && break
+            sleep 1
+          done
+          curl -fs http://localhost:4000/api/health
+          curl -fs http://localhost:4000/ | grep -q '<div id="root">'
+          curl -fs http://localhost:4000/api/queues | grep -q notifications
+      - name: Container logs
+        if: failure()
+        run: docker logs flowqueue

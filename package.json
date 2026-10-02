@@ -3,25 +3,51 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Distributed Background Task Queue & Webhook Dispatcher Platform",
+  "description": "Background job queue with capacity-aware workers, retries, dead letters and signed webhooks",
+  "homepage": "https://taan1el.github.io/flowqueue/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Taan1el/flowqueue.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Taan1el/flowqueue/issues"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "workspaces": [
     "server",
     "client"
   ],
   "scripts": {
+    "dev": "npm run dev:server & npm run dev:client",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
-    "dev": "npm run dev:server",
+    "start": "npm run start --workspace=server",
+    "build": "npm run build:server && npm run build:client",
     "build:server": "npm run build --workspace=server",
     "build:client": "npm run build --workspace=client",
-    "build": "npm run build:server && npm run build:client",
+    "build:pages": "npm run build:pages --workspace=client",
+    "test": "npm run test:server && npm run test:client",
     "test:server": "npm run test --workspace=server",
     "test:client": "npm run test --workspace=client",
-    "test": "npm run test:server && npm run test:client",
+    "lint": "npm run lint:server && npm run lint:client",
     "lint:server": "npm run lint --workspace=server",
-    "lint:client": "npm run lint --workspace=client",
-    "lint": "npm run lint:server && npm run lint:client"
+    "lint:client": "npm run lint --workspace=client"
   },
+  "keywords": [
+    "job-queue",
+    "background-jobs",
+    "task-queue",
+    "dead-letter-queue",
+    "webhooks",
+    "hmac",
+    "sqlite",
+    "retries",
+    "react19"
+  ],
+  "author": "Taaniel Vananurm",
+  "license": "MIT",
   "devDependencies": {
     "typescript": "^5.8.2"
   }

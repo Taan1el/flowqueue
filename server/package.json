@@ -25,5 +25,17 @@
     "vitest": "^3.0.7"
   },
   "description": "FlowQueue API and worker: SQLite-backed job queue, retries, dead letters and signed webhooks",
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://taan1el.github.io/flowqueue/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Taan1el/flowqueue.git",
+    "directory": "server"
+  },
+  "bugs": {
+    "url": "https://github.com/Taan1el/flowqueue/issues"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
 }

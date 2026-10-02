@@ -39,12 +39,13 @@ describe('Worker leases', () => {
   });
 
   it('keeps a live lease and its slot until it expires', () => {
-    const id = enqueue();
-    const second = enqueue();
-    repo.claimEligibleJobs(5, 'worker-a', T0);
+    const a = enqueue();
+    const b = enqueue();
+    const [claimed] = repo.claimEligibleJobs(5, 'worker-a', T0);
+    const waiting = claimed.id === a ? b : a;
     expect(repo.claimEligibleJobs(5, 'worker-b', at(29))).toEqual([]);
-    expect(row(id).status).toBe('processing');
-    expect(row(second).status).toBe('queued');
+    expect(row(claimed.id).status).toBe('processing');
+    expect(row(waiting).status).toBe('queued');
   });
 
   it('recovers a job whose lease expired and counts the lost run as a failed attempt', () => {

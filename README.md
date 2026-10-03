@@ -167,7 +167,9 @@ const ok = expected.length === received.length &&
 npm test
 ```
 
-152 tests: 94 on the server (Vitest and Supertest, in-memory SQLite) and 58 in the client (Vitest, React Testing Library). The server tests cover routes and input validation, ordering and capacity, backoff, dead-lettering and replay, leases, signatures and delivery, and check the shared rules against the SQL queries. The client tests cover the main flows (filters, enqueueing, pausing, replay, the inspector, webhook tests, polling) and run the whole app against the demo engine. Tests use fake clocks and injected fetch and timers; none of them sleep.
+161 tests: 94 on the server (Vitest and Supertest, in-memory SQLite) and 67 in the client (Vitest, React Testing Library). The server tests cover routes and input validation, ordering and capacity, backoff, dead-lettering and replay, leases, signatures and delivery, and check the shared rules against the SQL queries. The client tests cover the main flows (filters, enqueueing, pausing, replay, the inspector, webhook tests, polling) and run the whole app against the demo engine. Tests use fake clocks and injected fetch and timers; none of them sleep.
+
+The client suite includes automated accessibility checks (axe, WCAG 2 A and AA rules) for the queue tabs, the jobs table, the dead letters, webhooks and enqueue tabs, the event log and the job inspector. jsdom cannot compute colors, so color contrast is checked outside it, from computed values in a real browser.
 
 CI runs lint, tests, `build` and `build:pages` on Node 22 and 24, then builds the Docker image and checks that the container answers `/api/health` and serves the dashboard.
 

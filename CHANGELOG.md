@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Automated accessibility tests for the queue tabs, jobs table, dead letters, webhooks and enqueue tabs, event log and job inspector, using axe with the WCAG 2 A and AA rules. Color contrast is skipped in jsdom and checked separately.
+
 ### Changed
 - New visual identity: the dashboard is now an operator console. Queues are vertical tabs on the left, the selected queue's jobs fill the middle, and a newest-first event log runs down the right. Dead letters, webhook deliveries and the enqueue form moved into tabs under the jobs table, and the stats strip became a single telemetry line. Text is set in JetBrains Mono and Lexend on a pale green-grey page with square corners, hairline rules and square status marks.
 

@@ -91,7 +91,7 @@ export const JobsTable: React.FC<JobsTableProps> = ({
       </fieldset>
     </div>
 
-    <div className="table-wrapper">
+    <div className="table-wrapper" role="region" tabIndex={0} aria-label="Jobs table">
       <table className="data-table">
         <thead>
           <tr>

@@ -164,7 +164,7 @@ export const JobInspector: React.FC<JobInspectorProps> = ({ jobId, onClose, onJo
             {job.error && (
               <div className="drawer-section">
                 <h3>Last error</h3>
-                <pre className="code-box mono">{job.error}</pre>
+                <pre className="code-box mono" role="region" tabIndex={0} aria-label="Last error text">{job.error}</pre>
               </div>
             )}
 
@@ -180,20 +180,20 @@ export const JobInspector: React.FC<JobInspectorProps> = ({ jobId, onClose, onJo
 
             <div className="drawer-section">
               <h3>Payload</h3>
-              <pre className="code-box mono">{JSON.stringify(job.payload, null, 2)}</pre>
+              <pre className="code-box mono" role="region" tabIndex={0} aria-label="Payload">{JSON.stringify(job.payload, null, 2)}</pre>
             </div>
 
             {job.result && (
               <div className="drawer-section">
                 <h3>Result</h3>
-                <pre className="code-box mono">{JSON.stringify(job.result, null, 2)}</pre>
+                <pre className="code-box mono" role="region" tabIndex={0} aria-label="Result">{JSON.stringify(job.result, null, 2)}</pre>
               </div>
             )}
 
             <div className="drawer-section">
               <h3>{`Attempts (${job.attempts_list?.length || 0})`}</h3>
               {job.attempts_list && job.attempts_list.length > 0 ? (
-                <div className="table-wrapper">
+                <div className="table-wrapper" role="region" tabIndex={0} aria-label="Attempts table">
                   <table className="data-table">
                     <thead>
                       <tr>
